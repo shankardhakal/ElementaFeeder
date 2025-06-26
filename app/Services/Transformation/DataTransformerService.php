@@ -9,11 +9,6 @@ use Illuminate\Support\Collection;
 
 class DataTransformerService
 {
-    // We will inject the RuleEngineService here later
-    public function __construct()
-    {
-    }
-
     public function transform(array $rawRow, Feed $feed): ?ProductDto
     {
         // For now, we only use the feed's direct mapping rules.

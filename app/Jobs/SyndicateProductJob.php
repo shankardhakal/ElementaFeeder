@@ -77,31 +77,35 @@ class SyndicateProductJob implements ShouldQueue, ShouldBeUnique
         ]);
 
         // Apply rate limiting based on the website's configuration.
-        RateLimiter::throttle('syndicate-to-'.$this->website->id, $this->website->rate_limit_per_minute ?: 100)->block(30)->then(function () use ($syndicator, $apiClientFactory) {
+        $limiter = RateLimiter::attempt(
+            'syndicate-to-'.$this->website->id,
+            $this->website->rate_limit_per_minute ?: 100,
+            function () use ($syndicator, $apiClientFactory) {
+                // 1. Get the syndication action (create or update) from Redis via the syndicator service.
+                $syndicationAction = $syndicator->getSyndicationAction($this->productDto, $this->website);
+                $action = $syndicationAction['action'];
+                $destinationId = $syndicationAction['destination_id'];
 
-            // 1. Get the syndication action (create or update) from Redis via the syndicator service.
-            $syndicationAction = $syndicator->getSyndicationAction($this->productDto, $this->website);
-            $action = $syndicationAction['action'];
-            $destinationId = $syndicationAction['destination_id'];
+                // 2. Get the correct API client using the factory.
+                $apiClient = $apiClientFactory->make($this->website);
 
-            // 2. Get the correct API client using the factory.
-            $apiClient = $apiClientFactory->make($this->website);
-
-            // 3. Perform the action.
-            if ($action === 'create') {
-                $newDestinationId = $apiClient->createProduct($this->productDto);
-                $syndicator->cacheNewProduct($this->productDto, $this->website, $newDestinationId);
-                $this->importJob->increment('products_created');
-                Log::info('Product created successfully.', ['destination_id' => $newDestinationId]);
-            } else { // 'update'
-                $apiClient->updateProduct($destinationId, $this->productDto);
-                $this->importJob->increment('products_updated');
-                Log::info('Product updated successfully.', ['destination_id' => $destinationId]);
+                // 3. Perform the action.
+                if ($action === 'create') {
+                    $newDestinationId = $apiClient->createProduct($this->productDto);
+                    $syndicator->cacheNewProduct($this->productDto, $this->website, $newDestinationId);
+                    $this->importJob->increment('products_created');
+                    Log::info('Product created successfully.', ['destination_id' => $newDestinationId]);
+                } else { // 'update'
+                    $apiClient->updateProduct($destinationId, $this->productDto);
+                    $this->importJob->increment('products_updated');
+                    Log::info('Product updated successfully.', ['destination_id' => $destinationId]);
+                }
             }
+        );
 
-        }, function () {
-            // Could not obtain lock...
-            return $this->release(10); // Release back to the queue to try again in 10 seconds.
-        });
+        if (! $limiter) {
+             // Could not obtain lock...
+            $this->release(10); // Release back to the queue to try again in 10 seconds.
+        }
     }
 }

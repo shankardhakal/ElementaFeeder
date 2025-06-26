@@ -15,6 +15,7 @@ class StreamingCsvParser implements StreamingParserInterface
     public function open(string $filePath, array $options = []): void
     {
         $this->options = $options;
+        // We will use the 'local_feeds' disk we configured previously
         $path = Storage::disk('local_feeds')->path($filePath);
 
         $this->csvReader = Reader::createFromPath($path, 'r');
@@ -34,7 +35,7 @@ class StreamingCsvParser implements StreamingParserInterface
         }
 
         // The offset for the statement needs to account for the header row.
-        // If we want to start reading at line 2, the offset is 1.
+        // If we want to start reading at physical line 2, the offset is 1.
         $offset = $start - 2;
         $limit = $end - $start + 1;
 
